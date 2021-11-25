@@ -1,4 +1,4 @@
-# Importing Image from PIL packag
+# Importing Image from PIL package
 from PIL import Image
 from sense_hat import SenseHat
 import time
