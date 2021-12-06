@@ -1,0 +1,330 @@
+# Importing Image from PIL package
+from PIL import Image
+from sense_hat import SenseHat
+import time
+import os
+
+# Gir SenseHat-en navnet sense, for bruk senere i koden
+sense = SenseHat()
+
+# Lyset er veldig skarpt, vi forventer at samtlige som prøver dette spillet vil oppleve at det er sterkt lys,
+# og med det vondt i øynene ettersom de ikke vil være i stand til å legge det fra seg. 
+# dette er ett forsøk på å vise hensyn til andre og oss selv.
+sense.low_light = True
+
+#Dette er antallet spill/baner vi har implementert. Dersom flere baner skal legges til, holder det å lage en
+# bane, og legge til filen i listen. programmet ordner resten
+baner = ['mario_bane1.png','mario_bane2.png']
+
+#Legger til +1 slik at spillet kan fortelle at neste bane kommer snart
+ant_spill = len(baner) + 1
+
+#Listen tall er en komprimert(lossless) liste som kun inneholder informasjon om tallet, ikke alt rundt.
+#Dette gjøres med en offsetfunksjon som plaserer tallet på riktig sted i matrisen.
+#listen inneholder 3X5 (15) verdier per tall i stedet for 64. dette sparer mye plass og tid
+tall = [1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1,  # 0
+        0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0,  # 1
+        1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1,  # 2
+        1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1,  # 3
+        1, 0, 0, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1,  # 4
+        1, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1,  # 5
+        1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1,  # 6
+        1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0,  # 7
+        1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1,  # 8
+        1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1]  # 9
+
+
+def siffer(siffer, x, y, r, g, b):
+    # bestemmer hvor i listen den starter basert på gitt siffer(tall[] er 15*10 stor)
+    offset = siffer * 15
+    for i in range(offset, offset+15):  # +15 slik at den tar kun en linje i listen tall
+        xt = i % 3
+        yt = (i-offset) // 3
+        sense.set_pixel(xt+x, yt+y, r*tall[i], g*tall[i], b*tall[i])
+
+
+def fulltTall(tall):
+
+    offsetVenstre = 1
+    offsetTopp = 2
+
+    tier = tall // 10  # Finner antall tiere som skal printes, kun nødvendig hvis verdi > 9
+    ener = tall % 10  # finner alle enere som skal printes
+    if (tall > 9):  # Kaller funksjonen siffer en ekstra gang, til venstre, dersom tallet > 9
+        siffer(tier, offsetVenstre, offsetTopp, 255, 255, 255)
+    siffer(ener, offsetVenstre + 4, offsetTopp, 255, 255, 255)
+
+
+# dette er 'tyngdegraften'. dette er så langt ned karakteren faller per iterasjon. Denne skal være konstant
+# og brukes i flere funksjoner. Den er derfor global
+farty = 0.2
+
+# funksjonen fall er 'fysikken bak ett fall. dette er veldig enkelt løst. og tar ikke høyde for akselerasjon
+# men har en konstant fart.
+# dette kan potensielt forbedres på sikt
+
+#den innebygde funksjonen sense.show_message() kan ikke avbrytes, og tar veldig lang tid. det er litt
+#frustrerende til tider, jeg lagde derfor en egen som tar kortere tid. kan avbrytes til vha brukerinput, og 
+#tar generelt kortere tid
+def showMessage(msg):
+    liste = list(msg)
+    for letter in liste:
+        sense.show_letter(letter)
+        time.sleep(0.3)
+    sense.clear()
+
+def fall(y):
+    fall.counter += farty
+    if fall.counter >= 1 and y <= 6:
+        y += 1
+        fall.counter = 0
+
+    # y er i dette tilfellet modifisert mhp 'gravitasjonen'
+    return y
+
+
+# fall.counter hjelper med å holde styr på antall ganger funksjonen er kjørt
+fall.counter = 0
+
+# funksjonen hopp fungerer som en invers fall()
+def hopp(y, grense):
+    hopp.counter += farty
+    if hopp.counter >= 1 and y >= 1 and y - 1 != grense:
+        y -= 1
+        hopp.counter = 0
+
+    # Her trenger vi kode for at spillet ikke 'sparer' på hopp hvis man har tak over seg
+    # elif y -1 == grense:
+
+    return y
+
+# holder styr på hvor mange ganger hopp funksjonen er kjørt
+hopp.counter = 0
+
+
+def velger():
+    cnt = 1
+    while True:
+
+        # her gir programmet brukeren en indikasjon på hvilken level spilleren r i ferd med å begynne
+        fulltTall(cnt)
+
+        # venter på onput fra brukeren. dette gir mer mening enn å kjøre en while-løkke som sjekker etter ny
+        # input hele tiden
+        event = sense.stick.wait_for_event()
+        if event.direction == 'right' and event.action == 'pressed':
+            cnt += 1
+        elif event.direction == 'left' and event.action == 'pressed':
+            cnt -= 1
+        elif event.direction == 'middle' and event.action == 'pressed':
+            return cnt
+
+        # hvis telleren overstiger antallet levler, vil telleren starte på nytt
+        if cnt > ant_spill:
+            cnt = 1
+        elif cnt < 1:
+            cnt = ant_spill
+
+def logg(spill,tid):
+    #forhåndsdefinerer plasseringen på filen
+    #Det er hensiktsmessig å bruke csv fil da det blir vanskeligere for en litt sur taper å endre på dataene
+    path, tider = 'highscore'+str(spill)+'.txt' , [tid]
+    f =  open(path,'r')
+    for line in f:
+        l = line.rstrip().split(' : ') 
+        tider.append(float(l[1]))
+    tider.sort()
+
+    #Holder listen over highscores på 10
+    while len(tider) > 10:
+        tider.pop()
+
+    #Ved å bruke 'w' (write) overskriver den nye dataen den eksisterende dataen i filen, i stedet for å legge til dataen
+    f = open(path,'w')
+    for i in range(len(tider)):
+        f.write(str(i+1) + ' : ' + str(tider[i]) + '\n')
+    f.close()
+    if tid in tider:
+        #lister er null-indeksert. dersom tiden er på 1. plass, vil vi få ut 0. plass. vi legger derfor til en
+        return int(tider.index(tid)) +1
+    else:
+        return 99
+
+def mario(bilde):
+
+    # Åpner bildet, dette gjør det mulig å hente ut informasjon fra bildet, samt skrive, dersom det blir nødvendig
+    im = Image.open(bilde)
+
+    # dette er fargen vi har valgt å bruke som grense. typ gulv, tak, vegger, osv.
+    grensefarge = [112, 252, 0]
+
+    #fi = im.getpixel((1,0))
+
+    # treffer du denne fargen vinner du
+    vinner = [248, 232, 56]
+
+    # denne fargen er farlig
+    farlig = [240, 64, 48]
+
+    # henter høyden og bredden på det importerte bildet. dette brukes til å finne grensene på banen.
+    width, height = im.size
+
+    # antall iterasjoner koden må gjennom med farty for at karakteren skal kunne hoppe to piksler høyt, gitt 'tyngdekraften'
+    anti = 0
+
+    # offsetverdiene bestemmer hvilken del av bilden matrisen viser. (øvre venstre hjørne er (offsetx,offsety))
+    offsetx ,offsety = 0, height - 8
+
+    # Velger startposisjonen.
+    posx,posy = 4,4
+
+    #Relatert til beveglese til høyre og venstre, basert på vinkelen til pien
+    v = 0
+
+    # Teller ned fra 3 til 1 og viser dette på led matrisen
+    for nedtelling in range(3, 0, -1):
+        fulltTall(nedtelling)
+        # med time.sleep(1) vil nedtellingen vise hvert tall i 1 sekund
+        time.sleep(1)
+
+    # vinneren av spillet baseres blant annet på tid. dette er for å starte 'stoppeklokka'
+    starttid = time.time()
+
+    while True:
+        #Henter input fra brukeren i form av vinkel på pien
+        acc = sense.get_accelerometer_raw()
+
+        # jeg ønsker ikke at programmet skal stoppe opp og vente på input fra brukeren, slik som i velger
+        # funksjonen, men heller reagere dersom noe nytt har skjedd.
+        for event in sense.stick.get_events():
+
+            # Ekstremt lang if - setning, men det er mange kriterier som må matche
+            if (event.direction == 'up' and event.action == 'pressed'
+                  and posy >= 1 and sense.get_pixel(posx, posy+1) == grensefarge):
+                anti = (2/farty) + 1  # 2 hopp / farty
+        
+        #Dette gjør at spillet ikke 'sparer' på hopp. men at hoppet stopper dersom spilleren treffer taket.
+        if sense.get_pixel(posx,posy-1) == grensefarge and anti > 0:
+            anti = 0
+
+        x = round(acc['x'],2)
+        #Høyre
+        if x > 0.15 and posx <= 6 and sense.get_pixel(posx+1, posy) != grensefarge:
+            #Ved å vegge til halvparten av vinkelen vil spilleren få en mer naturlig bevegelse
+            v += round(x/2,2)
+            #Benytter seg av samme prinsipp som hopp funksjonen. dersom programmet skulle flyttet en posisjon
+            #Hver iterasjon ville det tatt 2 sekunder å gå fra den ene siden av banen til den andre.
+            #Det vil bli vanskelig å styre, samt lett å jukse i enkelte tilfeller.
+            if v >= 1:
+                posx += 1
+                v -= 1
+
+        #Venstre
+        elif x < -0.15 and posx >= 1 and sense.get_pixel(posx-1, posy) != grensefarge:
+            v += round(x/2,2)
+            if v <= -1:
+                posx -= 1
+                v += 1
+        else:
+            v = 0
+
+        if anti > 0 and sense.get_pixel(posx, posy-1) != grensefarge:
+            anti -= 1
+            posy = hopp(posy, grensefarge)
+            fall.counter = 0
+        elif anti > 0 and sense.get_pixel(posx, posy-1) == grensefarge:
+            anti = 0
+
+        if posy != 7 and sense.get_pixel(posx, posy+1) != grensefarge:
+            posy = fall(posy)
+
+
+        # Dette er koden som gjør at skjermen følger posisjonen til spilleren
+        # Det kan være litt forvirrende at x - variabelen øker mot høyre, og y variabelen øker nedover
+        # til høyre
+        if posx > 4 and offsetx != width-8:
+            offsetx += 1
+            posx -= 1
+        # til venstre
+        elif posx < 3 and offsetx != 0:
+            offsetx -= 1
+            posx += 1
+        # opp
+        if posy < 3 and offsety != 0:
+            offsety -= 1
+            posy += 1
+        # ned
+        elif posy > 4 and offsety != height-8:
+            offsety += 1
+            posy -= 1
+
+
+        # Henter ut de nødvendige pikselene fra det importerte bildet, og skriver det til LED - matrisen
+        for i in range(offsetx, offsetx+8):
+            for j in range(offsety, offsety+8):
+                rgb = im.getpixel((i, j))
+                #Tidligere erfarte vi ett problem der spilleren begynnte blinke. dette fordi det tok for
+                #lang tid mellom funksjonen som satte fargen på banen, og fargen på spilleren. under ser vi
+                # en av løsningene for problemet, dom etter hvert ble byttet ut.
+                # if i != posx and j != posy:
+                sense.set_pixel(i-offsetx, j-offsety, rgb[0], rgb[1], rgb[2])
+
+        # Henter typen piksel spilleren står på. (om det er bakke, farlige hinder, målflagg, osv)
+        pix = sense.get_pixel(posx, posy)
+
+        if pix == vinner:
+            tid = float(str(round(time.time() - starttid, 2)))
+            # return vil avslutte while løkken, og med det avslutte spillet
+            return tid
+
+        elif pix == farlig:
+            return 'Game Over'
+
+        else:
+            sense.set_pixel(posx, posy, 255, 255, 255)
+
+        time.sleep(0.05)
+
+
+def main():
+
+    #'showMessage' funksjonen kan modifiseres til å kunne bli avbrutt basert på input fra brukeren
+    # en erfaring jeg gjorde gjennom testing, sense.show_message tar så lang tid at det kan bli
+    # frustrerende i lengden.
+    showMessage('Velg Level')
+
+    #jeg vil vise en bane mer enn det som er tilgjengelig. slik at den ikoniske 'Kommer snart!'
+    #som vi alle husker fra supermario på gameboy vises
+    spill = velger()
+
+    if spill > ant_spill-1:
+        #Alle supermario spillene på den gamle gameboyen hadde alltid en bane der det sto 'Kommer snart!'
+        tid = 'Kommer snart!'
+    else:
+        showMessage('Level ')
+        #Gir litt bedre tid til å se levelen
+        sense.show_letter(str(spill))
+        time.sleep(2)
+        tid = mario(baner[spill-1])
+
+    print(tid)
+
+    #Dersom returverdien tid er float, betyr det at spilleren har fullført banen og satt en tid.
+    #Dersom returverdien tid er en streng, betyr det at spilleren ikke har satt en tid, og dermed 'tapt'
+    if isinstance(tid,float):
+        plassering = logg(spill,tid)
+        showMessage('Din tid: ')
+        if tid - int(tid) == 0:
+            fulltTall(int(tid))
+        else:
+            sense.show_message(str(tid))
+
+        fulltTall(plassering)
+    else:
+        showMessage(tid)
+    
+    #Viser resultatet til spilleren fram til spilleren trykker på en knapp
+    sense.stick.wait_for_event()
+
+while True:
+    main()
