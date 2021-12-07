@@ -14,7 +14,7 @@ sense.low_light = True
 
 #Dette er antallet spill/baner vi har implementert. Dersom flere baner skal legges til, holder det å lage en
 # bane, og legge til filen i listen. programmet ordner resten
-baner = ['mario_bane1.png','mario_bane2.png']
+baner = ['bane1','bane2','bane3','bane4']
 
 #Legger til +1 slik at spillet kan fortelle at neste bane kommer snart
 ant_spill = len(baner) + 1
@@ -57,11 +57,7 @@ def fulltTall(tall):
 
 # dette er 'tyngdegraften'. dette er så langt ned karakteren faller per iterasjon. Denne skal være konstant
 # og brukes i flere funksjoner. Den er derfor global
-farty = 0.2
-
-# funksjonen fall er 'fysikken bak ett fall. dette er veldig enkelt løst. og tar ikke høyde for akselerasjon
-# men har en konstant fart.
-# dette kan potensielt forbedres på sikt
+farty = 0.3
 
 #den innebygde funksjonen sense.show_message() kan ikke avbrytes, og tar veldig lang tid. det er litt
 #frustrerende til tider, jeg lagde derfor en egen som tar kortere tid. kan avbrytes til vha brukerinput, og 
@@ -73,6 +69,9 @@ def showMessage(msg):
         time.sleep(0.3)
     sense.clear()
 
+# funksjonen fall er 'fysikken bak ett fall. dette er veldig enkelt løst. og tar ikke høyde for akselerasjon
+# men har en konstant fart.
+# dette kan potensielt forbedres på sikt
 def fall(y):
     fall.counter += farty
     if fall.counter >= 1 and y <= 6:
@@ -100,6 +99,14 @@ def hopp(y, grense):
 
 # holder styr på hvor mange ganger hopp funksjonen er kjørt
 hopp.counter = 0
+
+def rage():
+    #større enn 5 mindre enn -4
+    raw = sense.get_accelerometer_raw()
+    if raw['z'] > 5 or raw['z'] < -4:
+        sense.show_message('Slapp av')
+        time.sleep(10)
+    print("x: {x}, y: {y}, z: {z}".format(**raw))
 
 
 def velger():
@@ -143,6 +150,7 @@ def logg(spill,tid):
     f = open(path,'w')
     for i in range(len(tider)):
         f.write(str(i+1) + ' : ' + str(tider[i]) + '\n')
+    # Lukker og lagrer listen, ettersom vi nå er ferdige med listen
     f.close()
     if tid in tider:
         #lister er null-indeksert. dersom tiden er på 1. plass, vil vi få ut 0. plass. vi legger derfor til en
@@ -150,21 +158,11 @@ def logg(spill,tid):
     else:
         return 99
 
-def mario(bilde):
+def mario(bilde,dir):
 
+    print(bilde[0])
     # Åpner bildet, dette gjør det mulig å hente ut informasjon fra bildet, samt skrive, dersom det blir nødvendig
-    im = Image.open(bilde)
-
-    # dette er fargen vi har valgt å bruke som grense. typ gulv, tak, vegger, osv.
-    grensefarge = [112, 252, 0]
-
-    #fi = im.getpixel((1,0))
-
-    # treffer du denne fargen vinner du
-    vinner = [248, 232, 56]
-
-    # denne fargen er farlig
-    farlig = [240, 64, 48]
+    im = Image.open(dir +'/'+ bilde[0])
 
     # henter høyden og bredden på det importerte bildet. dette brukes til å finne grensene på banen.
     width, height = im.size
@@ -181,16 +179,39 @@ def mario(bilde):
     #Relatert til beveglese til høyre og venstre, basert på vinkelen til pien
     v = 0
 
+    #bytte bilde
+    teller = 0
+
     # Teller ned fra 3 til 1 og viser dette på led matrisen
     for nedtelling in range(3, 0, -1):
         fulltTall(nedtelling)
         # med time.sleep(1) vil nedtellingen vise hvert tall i 1 sekund
         time.sleep(1)
+    sense.clear()
+
+    for i in range(offsetx, offsetx+8):
+            for j in range(offsety, offsety+8):
+                rgb = im.getpixel((i, j))
+                #Tidligere erfarte vi ett problem der spilleren begynnte blinke. dette fordi det tok for
+                #lang tid mellom funksjonen som satte fargen på banen, og fargen på spilleren. under ser vi
+                # en av løsningene for problemet, dom etter hvert ble byttet ut.
+                sense.set_pixel(i-offsetx, j-offsety, rgb[0], rgb[1], rgb[2])
+
+
+    # Vi opplevde at dersom man henter pixelverdiene direkte fra bildet, ville verdiene avvike med omkring +-5.
+    # Vi fant dermed en løsning der vi henter ut verdien direkte fra matrisen. På denne måten vil ikke 
+    # noen verdier være den riktig i forhold til bildet, men de vil stemme ifht hverandre.
+    grensefarge = sense.get_pixel(posx,posy+1)
+    farlig = sense.get_pixel(posx,posy+2)
+    vinner = sense.get_pixel(posx,posy+3)
+
+    time.sleep(1)
 
     # vinneren av spillet baseres blant annet på tid. dette er for å starte 'stoppeklokka'
     starttid = time.time()
 
     while True:
+    
         #Henter input fra brukeren i form av vinkel på pien
         acc = sense.get_accelerometer_raw()
 
@@ -198,13 +219,28 @@ def mario(bilde):
         # funksjonen, men heller reagere dersom noe nytt har skjedd.
         for event in sense.stick.get_events():
 
-            # Ekstremt lang if - setning, men det er mange kriterier som må matche
+            # Denne funksjonen kontrollerer hopp funksjonen. 
             if (event.direction == 'up' and event.action == 'pressed'
                   and posy >= 1 and sense.get_pixel(posx, posy+1) == grensefarge):
+                # En funksjon som fullfører hele hoppbevegelsen, vil ikke være gunstig i en slik applikasjon
+                # ettersom vi ønsker at spilleren skal kunne bevege seg samtidig
                 anti = (2/farty) + 1  # 2 hopp / farty
+
+
+            # Hovedkontrollene for bevegelse fram og tilbake erbasert på tilt. men i enkelte tilfeller kan det
+            # være veldig vanskelig å styre kun med disse kontrollene. joysticken er derfor en mulighet for
+            # å gjørre det noe lettere på vanskligere baner.
+            elif (event.direction == 'left' and event.action == 'pressed' 
+            and posx >= 1 and sense.get_pixel(posx-1,posy) != grensefarge):
+                posx -= 1
+            
+            elif (event.direction == 'right' and event.action == 'pressed' 
+            and posx <= 6 and sense.get_pixel(posx+1,posy) != grensefarge):
+                posx += 1
         
         #Dette gjør at spillet ikke 'sparer' på hopp. men at hoppet stopper dersom spilleren treffer taket.
-        if sense.get_pixel(posx,posy-1) == grensefarge and anti > 0:
+        # Koden sørger også for at spilleren ikke kan hoppe ut av skjermen.
+        if (sense.get_pixel(posx,posy-1) == grensefarge and anti > 0) or posy == 0:
             anti = 0
 
         x = round(acc['x'],2)
@@ -278,53 +314,85 @@ def mario(bilde):
             return tid
 
         elif pix == farlig:
-            return 'Game Over'
+            return 'Game Over' , str(round(time.time() - starttid, 2))
 
         else:
             sense.set_pixel(posx, posy, 255, 255, 255)
+
+        # Etter dette tillegget opplevde vi at programmet gikk betydelig saktere. Løsningen her ble å sette
+        # opp hastigheten alt skjer på med unntak av oppdateringen av bildet.
+        teller += farty/2
+        if teller > len(bilde)-1:
+            teller = 0
+        
+        im = Image.open(dir +'/'+ bilde[int(teller)])
 
         time.sleep(0.05)
 
 
 def main():
+    while True:
+        #'showMessage' funksjonen kan modifiseres til å kunne bli avbrutt basert på input fra brukeren
+        # en erfaring jeg gjorde gjennom testing, sense.show_message tar så lang tid at det kan bli
+        # frustrerende i lengden.
+        showMessage('Velg Level')
 
-    #'showMessage' funksjonen kan modifiseres til å kunne bli avbrutt basert på input fra brukeren
-    # en erfaring jeg gjorde gjennom testing, sense.show_message tar så lang tid at det kan bli
-    # frustrerende i lengden.
-    showMessage('Velg Level')
+        #jeg vil vise en bane mer enn det som er tilgjengelig. slik at den ikoniske 'Kommer snart!'
+        #som vi alle husker fra supermario på gameboy vises
+        spill = velger()
 
-    #jeg vil vise en bane mer enn det som er tilgjengelig. slik at den ikoniske 'Kommer snart!'
-    #som vi alle husker fra supermario på gameboy vises
-    spill = velger()
+        # Henter ut alle filene fra gitt directory. 
+        dir = 'bane' + str(spill)
+        bilder , sortert_bilder = [] , []
+        for fil in os.listdir(dir):
+            bilder.append(os.path.join(fil))
 
-    if spill > ant_spill-1:
-        #Alle supermario spillene på den gamle gameboyen hadde alltid en bane der det sto 'Kommer snart!'
-        tid = 'Kommer snart!'
-    else:
-        showMessage('Level ')
-        #Gir litt bedre tid til å se levelen
-        sense.show_letter(str(spill))
-        time.sleep(2)
-        tid = mario(baner[spill-1])
+        # Listen med bilder returneres usortert. print(bilder) vil printe en nærmest tilfeldig liste.
+        # sordet() funksjonen, og .sort() - metoden fungerer ikke da kombinasjonen av integer og streng
+        # vil sorteres feil. f.eks. sortert liste vil være 'streng1', 'streng 10', 'streng11', 'streng9'.
+        # Dette sorterer listen skikkelig
+        for i in range(len(bilder)+1):
+            for j in range(len(bilder)):
+                if int(str(bilder[j])[:-4]) == i:
+                    sortert_bilder.append(bilder[j])
 
-    print(tid)
 
-    #Dersom returverdien tid er float, betyr det at spilleren har fullført banen og satt en tid.
-    #Dersom returverdien tid er en streng, betyr det at spilleren ikke har satt en tid, og dermed 'tapt'
-    if isinstance(tid,float):
-        plassering = logg(spill,tid)
-        showMessage('Din tid: ')
-        if tid - int(tid) == 0:
-            fulltTall(int(tid))
+        if spill > ant_spill-1:
+            #Alle supermario spillene på den gamle gameboyen hadde alltid en bane der det sto 'Kommer snart!'
+            tid = 'Kommer snart!'
         else:
-            sense.show_message(str(tid))
+            showMessage('Level ')
+            #Gir litt bedre tid til å se levelen
+            sense.show_letter(str(spill))
+            time.sleep(2)
+            sense.clear()
+            time.sleep(0.5)
+            # Behandler hale spillet som en funksjon som tar inn liste med alle bildene banen til banen, samt
+            # path til mappen som inneholder alle bildene
+            tid = mario(sortert_bilder,dir)
 
-        fulltTall(plassering)
-    else:
-        showMessage(tid)
-    
-    #Viser resultatet til spilleren fram til spilleren trykker på en knapp
-    sense.stick.wait_for_event()
+        print(tid)
 
-while True:
+        #Dersom returverdien tid er float, betyr det at spilleren har fullført banen og satt en tid.
+        #Dersom returverdien tid er en streng, betyr det at spilleren ikke har satt en tid, og dermed 'tapt'
+        if isinstance(tid,float):
+            plassering = logg(spill,tid)
+            showMessage('Din tid: ')
+            if tid - int(tid) == 0:
+                fulltTall(int(tid))
+            else:
+                # Det er i dette tilfallet mer hensiktsmessig å vise tiden som løpende tekst framfor 
+                sense.show_message(str(tid))
+
+            # Viser plasseringen til spilleren vha fulltTall funksjonen
+            fulltTall(plassering)
+        else:
+            #I dette tilfellet vil variabelen tid være en streng som sier 'Game over'.
+            showMessage(tid[0])
+            sense.show_message(tid[1])
+        
+        #Viser resultatet til spilleren fram til spilleren trykker på en knapp
+        sense.stick.wait_for_event()
+
+if __name__ == '__main__':
     main()
